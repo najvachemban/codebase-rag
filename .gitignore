@@ -1,13 +1,15 @@
-
+ backend/app/core/__pycache__/
 backend/app/ingestion/__pycache__/
-
+ backend/app/parsing/__pycache__/
 backend/test.db
 backend/test_pipeline.py
 
 backend/chroma_data/
-.env
+backend/.env
 
 backend/compare_retrieval.py
 backend/chroma_data
 
 backend/app/storage/__pycache__/
+
+backend/venv

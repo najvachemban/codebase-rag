@@ -14,33 +14,40 @@
   - [x] Design MySQL schema (repositories, files)
   - [x] Persist ingestion results to MySQL
 
-- [ ] **Phase 2 — Code Parsing**
-  - [ ] Compare fixed-size vs function-level vs AST-aware chunking
-  - [ ] Integrate Tree-sitter (or chosen parser)
-  - [ ] Extract function/class-level chunks with metadata
+- [x] **Phase 2 — Code Parsing**
+  - [x] Compare fixed-size vs function-level vs AST-aware chunking
+  - [x] Integrate Tree-sitter (or chosen parser)
+  - [x] Extract function/class-level chunks with metadata
 
-- [ ] **Phase 3 — Embeddings**
-  - [ ] Choose embedding model
-  - [ ] Build embedding pipeline
+- [x] **Phase 3 — Embeddings**
+  - [x] Choose embedding model
+  - [x] Build embedding pipeline
 
-- [ ] **Phase 4 — Vector Database**
-  - [ ] Chroma schema/collection design
-  - [ ] Link MySQL chunk IDs to Chroma vectors
+- [x] **Phase 4 — Vector Database**
+  - [x] Chroma schema/collection design
+  - [x] Link MySQL chunk IDs to Chroma vectors
 
-- [ ] **Phase 5 — Basic Retrieval**
-  - [ ] End-to-end vector-search RAG pipeline
-  - [ ] Citations (file, function, lines)
+- [x] **Phase 5 — Basic Retrieval**
+  - [x] End-to-end vector-search RAG pipeline
+  - [x] Citations (file, function, lines)
+  - [x] Verified with real Gemini generation against a real repo (requests)
+  - [!] Known gap: duplicate citations when multiple windows of the same chunk are retrieved
+  
+- [x] **Phase 6 — Hybrid Retrieval**
+  - [x] BM25 keyword search index
+  - [x] Reciprocal Rank Fusion (RRF)
+  - [x] Compared vector-only vs BM25-only vs hybrid on real queries
+  
+- [x] **Phase 7 — Reranking**
+  - [x] Cross-encoder reranking stage (ms-marco-MiniLM-L-6-v2)
+  - [x] Verified reranking correctly demotes test code vs implementation code
 
-- [ ] **Phase 6 — Hybrid Retrieval**
-  - [ ] BM25 keyword search
-  - [ ] Result fusion (RRF or similar)
-
-- [ ] **Phase 7 — Reranking**
-  - [ ] Cross-encoder reranker
-  - [ ] Measure improvement vs no reranking
-
-- [ ] **Phase 8 — Query Understanding**
-  - [ ] Query rewriting / expansion (only if measurably helpful)
+- [x] **Phase 8 — Query Understanding**
+  - [x] LLM-based query rewriting implemented
+  - [x] Tested against real repo — no clear improvement observed;
+        root cause traced to question/corpus mismatch, not rewriting quality.
+        Kept as opt-in, not default-on, pending further testing with
+        better-matched questions.
 
 - [ ] **Phase 9 — Repository-Aware Retrieval**
   - [ ] Metadata filtering (language, path, class, function)

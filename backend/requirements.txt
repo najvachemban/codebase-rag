@@ -1,0 +1,14 @@
+pathspec
+tree-sitter==0.21.3
+tree-sitter-languages
+pydantic-settings
+sqlalchemy
+pymysql
+
+sentence-transformers
+
+chromadb
+
+google-genai
+
+rank_bm25
