@@ -49,9 +49,11 @@
         Kept as opt-in, not default-on, pending further testing with
         better-matched questions.
 
-- [ ] **Phase 9 — Repository-Aware Retrieval**
-  - [ ] Metadata filtering (language, path, class, function)
-
+- [x] **Phase 9 — Repository-Aware Retrieval**
+  - [x] Metadata filtering (language, file path prefix, class, repo)
+  - [x] Applied before fusion, not just at display time
+  - [x] Noted: filter value depends on corpus heterogeneity, not universal
+  - [ ] 
 - [ ] **Phase 10 — Graph/Dependency-Aware RAG**
   - [ ] Demonstrate a concrete retrieval failure first
   - [ ] Lightweight call-graph construction
