@@ -86,5 +86,3 @@
 - [ ] **Phase 19 — Deployment**
   - [ ] Public URL deployment
 
-- [ ] **Phase 20 — Interview Preparation**
-  - [ ] Review architecture, trade-offs, and metrics for interview readiness
