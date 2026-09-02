@@ -1,11 +1,10 @@
-
 """
-Phase 6, Step 2: Hybrid retrieval -- fuse vector + BM25 rankings with RRF.
+Phase 6 + 9: Hybrid retrieval with RRF fusion and optional metadata filtering.
 
 Responsibility: run dense (vector) and sparse (BM25) retrieval on the
-same query, then combine their rankings using Reciprocal Rank Fusion,
-which only relies on rank position -- not raw scores -- since the two
-methods' scores are not on comparable scales.
+same query, optionally restrict both to results matching a set of
+metadata filters, then combine their rankings using Reciprocal Rank
+Fusion.
 """
 
 from dataclasses import dataclass
@@ -13,6 +12,7 @@ from dataclasses import dataclass
 from app.storage.models import Chunk
 from app.retrieval.basic_retrieval import RetrievedChunk, retrieve as vector_retrieve
 from app.retrieval.bm25_index import BM25Index, search_bm25
+from app.retrieval.filters import RetrievalFilters, matches
 
 RRF_K = 60  # standard damping constant used in the original RRF paper
 
@@ -74,24 +74,49 @@ def hybrid_retrieve(
     question: str,
     top_k: int = 5,
     candidate_pool_size: int = 20,
+    filters: RetrievalFilters | None = None,
 ) -> list[HybridResult]:
     """
-    Run vector + BM25 retrieval, fuse with RRF, and return the top_k
-    fully-hydrated results.
+    Run vector + BM25 retrieval, optionally filter by metadata, fuse
+    with RRF, and return the top_k fully-hydrated results.
 
     Args:
         collection: Chroma collection.
         bm25_index: BM25Index built from the same repo's chunks.
         chunks_by_id: dict of chunk_id -> Chunk, used to hydrate metadata
-                      for results that only came from BM25 (which doesn't
-                      carry file path / line info the way vector results do).
+                      for BM25-only results and to check filter criteria.
         question: the user's query.
         top_k: how many final fused results to return.
         candidate_pool_size: how many results to pull from EACH method
                               before fusing (wider net than the final top_k).
+        filters: optional RetrievalFilters to restrict results by
+                 language, file path prefix, class, or repo_id.
     """
+    if filters is None:
+        filters = RetrievalFilters()
+
     vector_results = vector_retrieve(collection, question, top_k=candidate_pool_size)
     bm25_results = search_bm25(bm25_index, question, top_k=candidate_pool_size)
+
+    # Apply filters BEFORE fusion, so filtered-out candidates never
+    # influence the ranking at all -- not just hidden from final output.
+    # chunks_by_id is used as the single source of truth for metadata
+    # (repo_id, language) that isn't carried directly on RetrievedChunk.
+    if not filters.is_empty():
+        def _chunk_matches(chunk_id: int) -> bool:
+            chunk = chunks_by_id.get(chunk_id)
+            if chunk is None:
+                return False
+            return matches(
+                filters,
+                repo_id=chunk.file.repo_id,
+                language=chunk.language,
+                file_path=chunk.file.relative_path,
+                class_name=chunk.class_name,
+            )
+
+        vector_results = [r for r in vector_results if _chunk_matches(r.chunk_id)]
+        bm25_results = [(cid, score) for cid, score in bm25_results if _chunk_matches(cid)]
 
     fused_scores = reciprocal_rank_fusion(vector_results, bm25_results)
 
