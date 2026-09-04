@@ -27,6 +27,7 @@ class HybridResult:
     start_line: int
     end_line: int
     text: str
+    is_dependency: bool = False   # NEW: True if pulled in via call-graph expansion, not direct retrieval
 
 
 def _dedupe_vector_results_by_chunk(vector_results: list[RetrievedChunk]) -> list[RetrievedChunk]:
