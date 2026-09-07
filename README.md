@@ -54,12 +54,32 @@
   - [x] Applied before fusion, not just at display time
   - [x] Noted: filter value depends on corpus heterogeneity, not universal
   
-- [ ] **Phase 10 — Graph/Dependency-Aware RAG**
-  - [ ] Demonstrate a concrete retrieval failure first
-  - [ ] Lightweight call-graph construction
+- [x] **Phase 10 — Graph/Dependency-Aware RAG**
+  - [x] Demonstrated concrete failure first (top-K missing a real callee)
+  - [x] AST-based call extraction (Tree-sitter)
+  - [x] Same-file-scoped dependency expansion, fixing the demonstrated gap
+  - [!] Known limitation: cross-file calls (imports) are not resolved
 
-- [ ] **Phase 11 — Context Construction**
-  - [ ] Chunk ordering, dedup, token budget management
+- [x] **Phase 10.5 — Exact-Name Retrieval Shortcut** *(refinement, added after real-world testing)*
+  - [x] Diagnosed a real failure: short, generic-sounding orchestrator functions
+        (e.g. `Session.request()`) were invisible to BOTH vector search and BM25,
+        due to weak/shared vocabulary
+  - [x] Built exact-name matching to guarantee named functions/classes are
+        included in the candidate pool
+  - [x] Found and fixed a follow-up bug: exact matches were being added to the
+        pool but then discarded by reranking, which overwrote their priority.
+        Fixed by pinning exact matches to survive reranking.
+
+- [x] **Phase 11 — Context Construction**
+  - [x] Token-budgeted, priority-ordered context assembly
+  - [x] Direct results prioritized over dependency-expanded results
+  - [x] Results dropped whole (never truncated mid-function) when over budget
+
+- [x] **Phases 5–11 — Consolidated**
+  - [x] Full pipeline wired: hybrid retrieval → exact-name shortcut → rerank
+        (with pinning) → dependency expansion → context budget → generation
+  - [x] `RetrievalContext` bundles expensive setup (BM25, function index,
+        name index) for reuse across queries
 
 - [ ] **Phase 12 — LLM Generation**
   - [ ] Prompt design for grounded, citation-backed answers
@@ -88,3 +108,23 @@
 - [ ] **Phase 19 — Deployment**
   - [ ] Public URL deployment
 
+## Tech Stack 
+- Reranking: cross-encoder (ms-marco-MiniLM-L-6-v2)
+- Keyword search: BM25 (rank_bm25)
+
+
+## Known Issues & Lessons Learned
+
+- **Duplicate citations**: long functions split into multiple embedding
+  windows can appear as separate "hits" if more than one window scores
+  highly — not yet deduplicated at the final citation level.
+- **Cross-file dependency resolution**: the call graph only resolves
+  callees within the SAME FILE as the caller; imported functions from
+  other files aren't linked.
+- **Short orchestrator functions**: functions that mostly just call other
+  functions (thin coordinators) can be invisible to both dense and sparse
+  retrieval, since their own text has little distinctive content. Fixed
+  via an exact-name-match shortcut for cases where the user names the
+  function directly; still a gap for vaguer phrasing of the same question.
+- **Query rewriting**: implemented but not proven beneficial in initial
+  testing; kept as opt-in pending further evaluation (Phase 14).
