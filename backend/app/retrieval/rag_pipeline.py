@@ -1,10 +1,11 @@
 """
-Phases 5-11: The complete, current RAG pipeline.
+Phases 5-13: The complete, current RAG pipeline.
 
 Question -> hybrid retrieval (vector + BM25 + RRF) -> exact-name
 shortcut -> optional filters -> rerank (cross-encoder, with exact
-matches PINNED so they survive reranking) -> dependency expansion
-(call graph) -> context construction (token budget) -> LLM -> answer.
+matches PINNED so they survive) -> dependency expansion (call graph)
+-> evidence sufficiency check (abstain if nothing found) -> context
+construction (token budget) -> LLM -> citation verification -> answer.
 """
 
 from dataclasses import dataclass
@@ -17,8 +18,10 @@ from app.retrieval.reranker import rerank
 from app.retrieval.dependency_expansion import build_function_index, expand_with_dependencies
 from app.retrieval.exact_match import NameIndex, build_name_index, find_exact_matches
 from app.retrieval.context_builder import build_context
+from app.retrieval.evidence_check import has_sufficient_evidence, NO_EVIDENCE_MESSAGE
 from app.generation.prompt_builder import build_prompt
 from app.generation.llm_client import generate_answer
+from app.generation.citation_check import verify_citations
 
 
 @dataclass
@@ -77,8 +80,8 @@ def answer_question(
     Run the full pipeline for a single question.
 
     Returns a dict with the answer text, structured sources (marking
-    which were dependency-expanded), and how many results were dropped
-    for budget reasons -- full transparency into every stage's decisions.
+    which were dependency-expanded), budget/token stats, and a
+    citation_check result flagging any possibly-hallucinated file refs.
     """
     # Stage 1: hybrid retrieval (vector + BM25 + RRF), optionally filtered
     candidates = hybrid_retrieve(
@@ -88,9 +91,7 @@ def answer_question(
     )
 
     # Stage 1.5: exact-name shortcut -- guarantee any directly-named
-    # function/class is added to the pool, even if vector/BM25 missed it
-    # entirely (the demonstrated failure for short, generic-sounding
-    # orchestrator functions with heavily shared vocabulary).
+    # function/class is added to the pool, even if vector/BM25 missed it.
     existing_ids = {c.chunk_id for c in candidates}
     exact_match_ids = find_exact_matches(question, ctx.name_index)
     for chunk_id in exact_match_ids:
@@ -100,10 +101,7 @@ def answer_question(
 
     # Stage 2: cross-encoder reranking, narrowing to top_k.
     # Exact-name matches are PINNED -- they must survive to the final
-    # result regardless of the cross-encoder's score, since the user
-    # named them directly. (This was the real bug: Stage 1.5 injected
-    # them into the pool, but reranking could still cut them if the
-    # model judged their generic-looking text as unconvincing.)
+    # result regardless of the cross-encoder's score.
     if use_reranking and candidates:
         reranked = rerank(question, candidates, top_k=top_k)
         reranked_ids = {c.chunk_id for c in reranked}
@@ -111,7 +109,7 @@ def answer_question(
         missing_exact_matches = [cid for cid in exact_match_ids if cid not in reranked_ids]
         for chunk_id in missing_exact_matches:
             if reranked:
-                reranked.pop()  # drop the lowest-ranked result to make room
+                reranked.pop()
             reranked.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
 
         candidates = reranked
@@ -122,12 +120,31 @@ def answer_question(
     if use_dependency_expansion:
         candidates = expand_with_dependencies(candidates, ctx.chunks_by_id, ctx.function_index)
 
+    # Stage 3.5: pre-generation evidence check -- if retrieval found
+    # NOTHING at all, abstain deterministically rather than calling the
+    # LLM (and risking it inventing an answer despite Phase 12's rules).
+    if not has_sufficient_evidence(candidates):
+        return {
+            "question": question,
+            "answer": NO_EVIDENCE_MESSAGE,
+            "sources": [],
+            "dropped_for_budget": 0,
+            "estimated_context_tokens": 0,
+            "citation_check": {"mentioned": [], "unverified": [], "is_suspicious": False},
+        }
+
     # Stage 4: assemble a token-budgeted, priority-ordered context
     built_context = build_context(candidates, max_tokens=max_context_tokens)
 
     # Stage 5: generate the answer
     prompt = build_prompt(question, built_context.included)
     answer = generate_answer(prompt)
+
+    # Stage 6: post-generation citation verification -- a heuristic
+    # safety net checking whether cited file paths actually appeared
+    # in the context, catching obvious hallucinated references.
+    allowed_paths = {r.file_path for r in built_context.included}
+    citation_result = verify_citations(answer, allowed_paths)
 
     return {
         "question": question,
@@ -144,4 +161,5 @@ def answer_question(
         ],
         "dropped_for_budget": len(built_context.dropped),
         "estimated_context_tokens": built_context.total_estimated_tokens,
+        "citation_check": citation_result,
     }
