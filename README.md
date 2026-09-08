@@ -81,12 +81,14 @@
   - [x] `RetrievalContext` bundles expensive setup (BM25, function index,
         name index) for reuse across queries
 
-- [ ] **Phase 12 — LLM Generation**
-  - [ ] Prompt design for grounded, citation-backed answers
+- [x] **Phase 12 — LLM Generation**
+  - [x] Prompt design for grounded, citation-backed answers
 
-- [ ] **Phase 13 — Hallucination Handling**
-  - [ ] Evidence sufficiency check + abstention
-
+- [x] **Phase 13 — Hallucination Handling**
+  - [x] Pre-generation check: skip LLM entirely if retrieval found nothing (deterministic)
+  - [x] Post-generation citation verification: flag file references not present in context
+  - [!] Citation check is a heuristic (regex-based), not a proof — can have false negatives/positives
+  
 - [ ] **Phase 14 — RAG Evaluation**
   - [ ] Build eval dataset
   - [ ] Retrieval metrics (Recall@K, Precision@K, MRR)
