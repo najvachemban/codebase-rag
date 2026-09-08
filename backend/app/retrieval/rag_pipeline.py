@@ -1,11 +1,15 @@
 """
-Phases 5-13: The complete, current RAG pipeline.
+Phases 5-14: The complete, current RAG pipeline.
 
 Question -> hybrid retrieval (vector + BM25 + RRF) -> exact-name
 shortcut -> optional filters -> rerank (cross-encoder, with exact
 matches PINNED so they survive) -> dependency expansion (call graph)
 -> evidence sufficiency check (abstain if nothing found) -> context
 construction (token budget) -> LLM -> citation verification -> answer.
+
+retrieve_candidates() exposes everything through dependency expansion
+as a standalone function, so Phase 14 evaluation can measure retrieval
+quality directly without calling the LLM for every test question.
 """
 
 from dataclasses import dataclass
@@ -66,6 +70,63 @@ def _hydrate_exact_match(chunk_id: int, chunks_by_id: dict[int, Chunk]) -> Hybri
     )
 
 
+def retrieve_candidates(
+    ctx: RetrievalContext,
+    question: str,
+    top_k: int = 5,
+    candidate_pool_size: int = 20,
+    filters: RetrievalFilters | None = None,
+    use_reranking: bool = True,
+    use_dependency_expansion: bool = True,
+    use_exact_match: bool = True,
+) -> list[HybridResult]:
+    """
+    Run retrieval, exact-match, reranking, and dependency expansion --
+    everything EXCEPT context building and generation. Extracted so
+    evaluation (Phase 14) can measure retrieval quality directly,
+    without needing to call the LLM for every test question, and so
+    different configurations (vector-only, hybrid, +rerank, etc.) can
+    be toggled independently for comparison.
+    """
+    # Stage 1: hybrid retrieval (vector + BM25 + RRF), optionally filtered
+    candidates = hybrid_retrieve(
+        ctx.collection, ctx.bm25_index, ctx.chunks_by_id, question,
+        top_k=candidate_pool_size, candidate_pool_size=candidate_pool_size,
+        filters=filters,
+    )
+
+    # Stage 1.5: exact-name shortcut -- guarantee any directly-named
+    # function/class is added to the pool, even if vector/BM25 missed it.
+    exact_match_ids = find_exact_matches(question, ctx.name_index) if use_exact_match else []
+    if use_exact_match:
+        existing_ids = {c.chunk_id for c in candidates}
+        for chunk_id in exact_match_ids:
+            if chunk_id not in existing_ids:
+                candidates.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
+                existing_ids.add(chunk_id)
+
+    # Stage 2: cross-encoder reranking, with exact matches PINNED so
+    # they survive regardless of the cross-encoder's own judgment.
+    if use_reranking and candidates:
+        reranked = rerank(question, candidates, top_k=top_k)
+        if use_exact_match:
+            reranked_ids = {c.chunk_id for c in reranked}
+            missing_exact_matches = [cid for cid in exact_match_ids if cid not in reranked_ids]
+            for chunk_id in missing_exact_matches:
+                if reranked:
+                    reranked.pop()
+                reranked.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
+        candidates = reranked
+    else:
+        candidates = candidates[:top_k]
+
+    # Stage 3: pull in direct dependencies (same-file callees)
+    if use_dependency_expansion:
+        candidates = expand_with_dependencies(candidates, ctx.chunks_by_id, ctx.function_index)
+
+    return candidates
+
+
 def answer_question(
     ctx: RetrievalContext,
     question: str,
@@ -77,48 +138,14 @@ def answer_question(
     max_context_tokens: int = 6000,
 ) -> dict:
     """
-    Run the full pipeline for a single question.
-
-    Returns a dict with the answer text, structured sources (marking
-    which were dependency-expanded), budget/token stats, and a
-    citation_check result flagging any possibly-hallucinated file refs.
+    Run the full pipeline for a single question: retrieval through
+    generation, with hallucination safeguards on both ends.
     """
-    # Stage 1: hybrid retrieval (vector + BM25 + RRF), optionally filtered
-    candidates = hybrid_retrieve(
-        ctx.collection, ctx.bm25_index, ctx.chunks_by_id, question,
-        top_k=candidate_pool_size, candidate_pool_size=candidate_pool_size,
-        filters=filters,
+    candidates = retrieve_candidates(
+        ctx, question, top_k=top_k, candidate_pool_size=candidate_pool_size,
+        filters=filters, use_reranking=use_reranking,
+        use_dependency_expansion=use_dependency_expansion,
     )
-
-    # Stage 1.5: exact-name shortcut -- guarantee any directly-named
-    # function/class is added to the pool, even if vector/BM25 missed it.
-    existing_ids = {c.chunk_id for c in candidates}
-    exact_match_ids = find_exact_matches(question, ctx.name_index)
-    for chunk_id in exact_match_ids:
-        if chunk_id not in existing_ids:
-            candidates.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
-            existing_ids.add(chunk_id)
-
-    # Stage 2: cross-encoder reranking, narrowing to top_k.
-    # Exact-name matches are PINNED -- they must survive to the final
-    # result regardless of the cross-encoder's score.
-    if use_reranking and candidates:
-        reranked = rerank(question, candidates, top_k=top_k)
-        reranked_ids = {c.chunk_id for c in reranked}
-
-        missing_exact_matches = [cid for cid in exact_match_ids if cid not in reranked_ids]
-        for chunk_id in missing_exact_matches:
-            if reranked:
-                reranked.pop()
-            reranked.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
-
-        candidates = reranked
-    else:
-        candidates = candidates[:top_k]
-
-    # Stage 3: pull in direct dependencies (same-file callees)
-    if use_dependency_expansion:
-        candidates = expand_with_dependencies(candidates, ctx.chunks_by_id, ctx.function_index)
 
     # Stage 3.5: pre-generation evidence check -- if retrieval found
     # NOTHING at all, abstain deterministically rather than calling the
