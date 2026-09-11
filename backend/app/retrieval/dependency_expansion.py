@@ -55,9 +55,10 @@ def expand_with_dependencies(
         (marked with is_dependency=True), with duplicates avoided.
     """
     existing_chunk_ids = {r.chunk_id for r in results}
-    expanded = list(results)
+    expanded: list[HybridResult] = []
 
     for result in results:
+        expanded.append(result)
         called_names = extract_called_functions(result.text)
 
         added_for_this_result = 0

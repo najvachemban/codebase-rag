@@ -38,7 +38,9 @@ def retrieve(collection, question: str, top_k: int = 5) -> list[RetrievedChunk]:
         List of RetrievedChunk, ordered by relevance (closest first).
     """
     query_vector = embed_text(question)
-    raw_results = search(collection, query_vector=query_vector, top_k=top_k)
+    is_test_query = "test" in question.lower()
+    pool_size = max(top_k * 6, 30)
+    raw_results = search(collection, query_vector=query_vector, top_k=pool_size)
 
     retrieved = []
     ids = raw_results["ids"][0]
@@ -48,17 +50,26 @@ def retrieve(collection, question: str, top_k: int = 5) -> list[RetrievedChunk]:
 
     for i in range(len(ids)):
         meta = metadatas[i]
+        file_path = meta["file_path"]
+        dist = distances[i]
+        if not is_test_query and ("test" in file_path.lower() or meta["function_name"].startswith("test_")):
+            dist += 0.15
+
         retrieved.append(
-            RetrievedChunk(
-                chunk_id=meta["chunk_id"],
-                text=documents[i],
-                function_name=meta["function_name"],
-                class_name=meta["class_name"] or None,
-                file_path=meta["file_path"],
-                start_line=meta["start_line"],
-                end_line=meta["end_line"],
-                distance=distances[i],
+            (
+                dist,
+                RetrievedChunk(
+                    chunk_id=meta["chunk_id"],
+                    text=documents[i],
+                    function_name=meta["function_name"],
+                    class_name=meta["class_name"] or None,
+                    file_path=file_path,
+                    start_line=meta["start_line"],
+                    end_line=meta["end_line"],
+                    distance=distances[i],
+                ),
             )
         )
 
-    return retrieved
+    retrieved.sort(key=lambda x: x[0])
+    return [r for _, r in retrieved[:top_k]]

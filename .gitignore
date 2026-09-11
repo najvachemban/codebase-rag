@@ -1,6 +1,10 @@
  backend/app/core/__pycache__/
 backend/app/ingestion/__pycache__/
  backend/app/parsing/__pycache__/
+ backend/app/retrieval/__pycache__/
+ backend/app/generation/__pycache__/
+  backend/app/evaluation/__pycache__/
+  
 backend/test.db
 backend/test_pipeline.py
 
@@ -13,3 +17,5 @@ backend/chroma_data
 backend/app/storage/__pycache__/
 
 backend/venv
+
+backend/diagnose_request.py

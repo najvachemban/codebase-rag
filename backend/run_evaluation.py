@@ -52,6 +52,14 @@ def evaluate(name: str, get_results_fn) -> None:
     print(f"{name:<38} {avg(recalls):>9.3f} {avg(precisions):>12.3f} {avg(mrrs):>7.3f} {avg(hits):>8.3f}")
 
 
+# Pre-warm embedder and reranker models so their download/loading progress
+# bars finish before the evaluation table header is printed.
+from app.embeddings.embedder import embed_text
+from app.retrieval.reranker import _get_reranker
+embed_text("warmup")
+_get_reranker()
+
+print()
 print(f"{'Configuration':<38} {'Recall@5':>9} {'Precision@5':>12} {'MRR':>7} {'HitRate':>8}")
 print("-" * 78)
 

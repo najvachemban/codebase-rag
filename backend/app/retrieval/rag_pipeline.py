@@ -105,20 +105,24 @@ def retrieve_candidates(
                 candidates.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
                 existing_ids.add(chunk_id)
 
-    # Stage 2: cross-encoder reranking, with exact matches PINNED so
-    # they survive regardless of the cross-encoder's own judgment.
+    # Stage 2: cross-encoder reranking, with exact matches PINNED to the
+    # front so they rank highest and survive regardless of cross-encoder judgment.
     if use_reranking and candidates:
         reranked = rerank(question, candidates, top_k=top_k)
-        if use_exact_match:
-            reranked_ids = {c.chunk_id for c in reranked}
-            missing_exact_matches = [cid for cid in exact_match_ids if cid not in reranked_ids]
-            for chunk_id in missing_exact_matches:
-                if reranked:
-                    reranked.pop()
-                reranked.append(_hydrate_exact_match(chunk_id, ctx.chunks_by_id))
+        if use_exact_match and exact_match_ids:
+            exact_hydrated = [_hydrate_exact_match(cid, ctx.chunks_by_id) for cid in exact_match_ids]
+            exact_id_set = set(exact_match_ids)
+            filtered_reranked = [c for c in reranked if c.chunk_id not in exact_id_set]
+            reranked = (exact_hydrated + filtered_reranked)[:top_k]
         candidates = reranked
     else:
-        candidates = candidates[:top_k]
+        if use_exact_match and exact_match_ids:
+            exact_hydrated = [_hydrate_exact_match(cid, ctx.chunks_by_id) for cid in exact_match_ids]
+            exact_id_set = set(exact_match_ids)
+            filtered_candidates = [c for c in candidates if c.chunk_id not in exact_id_set]
+            candidates = (exact_hydrated + filtered_candidates)[:top_k]
+        else:
+            candidates = candidates[:top_k]
 
     # Stage 3: pull in direct dependencies (same-file callees)
     if use_dependency_expansion:

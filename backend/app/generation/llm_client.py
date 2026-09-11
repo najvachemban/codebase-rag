@@ -6,10 +6,19 @@ of the system doesn't need to know which provider or SDK is in use.
 """
 
 import os
+import time
+import logging
+
 from app.core.config import settings
 from google import genai
+from google.genai import errors as genai_errors
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = settings.llm_model  # Use model from .env
+
+MAX_RETRIES = 3
+INITIAL_BACKOFF_SECS = 1  # doubles each retry: 1s, 2s, 4s
 
 _client = None
 
@@ -28,12 +37,28 @@ def generate_answer(prompt: str, model: str = DEFAULT_MODEL) -> str:
     """
     Send a prompt to Gemini and return the generated text.
 
-    If the LLM API key is not set, return a placeholder response.
+    Retries up to MAX_RETRIES times with exponential backoff on
+    transient server errors (HTTP 500, 503).
     """
 
     client = _get_client()
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-    )
-    return response.text
+    backoff = INITIAL_BACKOFF_SECS
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+            )
+            return response.text
+        except genai_errors.ServerError as exc:
+            if attempt == MAX_RETRIES:
+                logger.error("Gemini API failed after %d attempts: %s", MAX_RETRIES, exc)
+                raise
+            logger.warning(
+                "Gemini API returned server error (attempt %d/%d), "
+                "retrying in %ds: %s",
+                attempt, MAX_RETRIES, backoff, exc,
+            )
+            time.sleep(backoff)
+            backoff *= 2

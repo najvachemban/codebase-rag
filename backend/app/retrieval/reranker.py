@@ -42,10 +42,14 @@ def rerank(query: str, candidates: list[HybridResult], top_k: int = 5) -> list[H
 
     model = _get_reranker()
 
-    # Cross-encoder needs (query, document_text) PAIRS as input --
-    # this is the key difference from bi-encoder embedding, which
-    # only ever sees one text at a time.
-    pairs = [(query, c.text) for c in candidates]
+    # Cross-encoder needs (query, document_text) PAIRS as input.
+    # We include function/class identity and file path so the cross-encoder
+    # evaluates the full context of the code chunk, not just bare function body.
+    def _candidate_text(c: HybridResult) -> str:
+        qname = f"{c.class_name}.{c.function_name}" if c.class_name else c.function_name
+        return f"# {qname} in {c.file_path}\n{c.text}"
+
+    pairs = [(query, _candidate_text(c)) for c in candidates]
     scores = model.predict(pairs)
 
     scored = list(zip(candidates, scores))

@@ -1,13 +1,15 @@
 
-backend/app/ingestion/__pycache__/
+.env
 
 backend/test.db
 backend/test_pipeline.py
+backend/diagnose_request.py
 
-backend/chroma_data/
-.env
 
 backend/compare_retrieval.py
-backend/chroma_data
+backend/chroma_data/
 
+backend/app/ingestion/__pycache__/
 backend/app/storage/__pycache__/
+backend/app/retrieval/__pycache__/
+backend/app/parsing/
