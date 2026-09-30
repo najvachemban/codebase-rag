@@ -15,6 +15,9 @@ import sys
 from fastapi import FastAPI
 
 from app.api.schemas import HealthResponse
+from app.api.repositories import router as repositories_router
+from app.api.query import router as query_router
+app.include_router(query_router)
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -42,6 +45,8 @@ app = FastAPI(
     description="Ask natural-language questions about a GitHub repository, with grounded citations.",
     version=APP_VERSION,
 )
+
+app.include_router(repositories_router)
 
 
 @app.on_event("startup")
